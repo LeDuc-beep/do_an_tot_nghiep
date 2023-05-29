@@ -32,6 +32,21 @@ unsigned long times=millis();
  // led status received from firebase
 String fireStatus = "";  
 
+// set data
+void setData(const char* field, const char* value) {
+  if(Firebase.setString(firebaseData, field, value)) {
+    Serial.println("Set field success");     
+  } else {
+    Serial.println("Set field failure");
+  }
+}
+
+//get data
+String getData(const char* field) {
+  Firebase.getString(firebaseData, field);
+  return firebaseData.stringData();
+}
+
 void setup() {
   // Initialize Serial port
   Serial.begin(9600);
@@ -43,7 +58,13 @@ void setup() {
 //  pinMode(txPin, OUTPUT);
   
   // Set the baud rate for the LoRa module
-  myLoRa.begin(9600);
+   myLoRa.begin(9600);
+   
+   myLoRa.println("AT+MODE=LoRa");
+myLoRa.println("AT+ADDR=1"); // Đặt địa chỉ LoRa module
+myLoRa.println("AT+SF=12"); // Đặt spreading factor (SF) là 12
+myLoRa.println("AT+CR=4/5"); // Đặt coding rate (CR) là 4/5
+myLoRa.println("AT+BAND=915000000"); // Đặt tần số hoạt động là 915MHz
 
   // Begin WiFi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -64,6 +85,7 @@ void setup() {
   setData("QUAT", "OFF") ;
   setData("DEN", "OFF") ;
   setData("PHUN_NUOC", "OFF") ;
+  setData("AUTO", "OFF") ;
 
   Firebase.reconnectWiFi("true");
   Serial.println("Firebase initialized");
@@ -73,6 +95,36 @@ void setup() {
   Firebase.setFloat(firebaseData,"/temperature", 0);
   Firebase.setFloat(firebaseData,"/light", 0);
   Firebase.setFloat(firebaseData,"/moisture", 0);
+
+  // set threshold 
+  Firebase.setFloat(firebaseData,"/HUMIDITY_THRESHOLD_MAX", 65);
+  Firebase.setFloat(firebaseData,"/HUMIDITY_THRESHOLD_MIN", 55);
+  Firebase.setFloat(firebaseData,"/TEMPERATURE_THRESHOLD_MAX", 30);
+  Firebase.setFloat(firebaseData,"/TEMPERATURE_THRESHOLD_MIN", 18);
+  Firebase.setFloat(firebaseData,"/MOISTURE_THRESHOLD_MIN", 60);
+  Firebase.setFloat(firebaseData,"/LIGHT_THRESHOLD_MIN", 500);
+
+
+    // Configure frequency band (868MHz)
+  myLoRa.write(0x06);
+  myLoRa.write(0xD9);
+  myLoRa.write(0x1B);
+
+  // Configure channel size (125kHz)
+  myLoRa.write(0x07);
+  myLoRa.write(0x86);
+  
+  // Configure spreading factor (SF 7)
+  myLoRa.write(0x08);
+  myLoRa.write(0x07);
+
+  // Configure coding rate (4/5)
+  myLoRa.write(0x0A);
+  myLoRa.write(0x02);
+  
+  // Configure transmitting power (14dBm)
+  myLoRa.write(0x09);
+  myLoRa.write(0x0E);
   
 }
 
@@ -87,6 +139,7 @@ void loop() {
     String quatSuong = getData("QUAT");
     String den = getData("DEN");
     String phunNuoc = getData("PHUN_NUOC");
+    String _auto = getData("AUTO");
 
     // Thêm dữ liệu vào đối tượng JSON
     if (ledStatus == "ON") {
@@ -126,6 +179,13 @@ void loop() {
     } else {
         // jsonDoc["phunNuoc"] = 0;   
         myLoRa.write(static_cast<int>(0x09));
+    }
+
+    if (_auto == "ON") {
+        myLoRa.write(static_cast<int>(0x10));
+    } else {
+        // jsonDoc["phunNuoc"] = 0;   
+        myLoRa.write(static_cast<int>(0x11));
     }
      
       // Chuyển đối tượng JSON thành chuỗi
@@ -171,19 +231,3 @@ void loop() {
 
   delay(1000);
 };
-
-
-// set data
-void setData(const char* field, const char* value) {
-  if(Firebase.setString(firebaseData, field, value)) {
-    Serial.println("Set field success");     
-  } else {
-    Serial.println("Set field failure");
-  }
-}
-
-//get data
-String getData(const char* field) {
-  Firebase.getString(firebaseData, field);
-  return firebaseData.stringData();
-}

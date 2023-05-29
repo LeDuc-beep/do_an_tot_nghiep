@@ -7,7 +7,6 @@
 #include <LiquidCrystal_I2C.h> 
 #include <BH1750.h>
 
-
 unsigned long previousMillis = 0;
 //unsigned long interval = 10000;
 unsigned long interval = 7000;
@@ -37,11 +36,23 @@ StaticJsonDocument<200> jsonDoc;
 DHT dht(DHT_PIN, DHT_TYPE); 
 int led = 2;   
 
+// set
 String ledStatus = "OFF";
 String phunSuong = "OFF";
 String quat = "OFF";
 String den = "OFF";
 String phunNuoc = "OFF";
+String _auto = "OFF";
+
+// set threshold
+#define HUMIDITY_THRESHOLD_MAX 65 
+#define HUMIDITY_THRESHOLD_MIN 60 
+#define TEMPERATURE_THRESHOLD_MAX 30
+#define TEMPERATURE_THRESHOLD_MIN 18
+#define MOISTURE_THRESHOLD_MAX 70 
+#define MOISTURE_THRESHOLD_MIN 60
+#define LIGHT_THRESHOLD_MIN_DAY 500  
+#define LIGHT_THRESHOLD_MIN_NIGHT 0 
 
 void setup()
 {
@@ -49,7 +60,18 @@ void setup()
   while (!Serial) continue;
 
   // Set the baud rate for the LoRa module
-  myLoRa.begin(9600);
+   myLoRa.begin(9600);
+
+
+  // Gửi các lệnh AT để cấu hình LoRa module
+myLoRa.println("AT+MODE=LoRa");
+myLoRa.println("AT+ADDR=1"); // Đặt địa chỉ LoRa module
+myLoRa.println("AT+SF=12"); // Đặt spreading factor (SF) là 12
+myLoRa.println("AT+CR=4/5"); // Đặt coding rate (CR) là 4/5
+myLoRa.println("AT+BAND=915000000"); // Đặt tần số hoạt động là 915MHz
+
+
+
   
   Wire.begin(SDA_PIN,SCL_PIN);
   lcd.begin();                      // Khởi tạo LCD
@@ -96,20 +118,24 @@ void setup()
   lcd.print(" lux");    
                      
   lcd.setCursor(0,2);              
-  lcd.print("SUONG:");             
+  lcd.print("SNG:");             
   lcd.print("OFF");                                  
 
   lcd.setCursor(11,2);             
-  lcd.print("LED: ");         
+  lcd.print("NC: ");         
   lcd.print("OFF");                                
 
   lcd.setCursor(0,3);              
-  lcd.print("QUAT: ");             
+  lcd.print("QT:");             
   lcd.print("OFF");                    
 
-  lcd.setCursor(10,3);             
-  lcd.print("DEN: ");         
-  lcd.print("OFF");                     
+  lcd.setCursor(7,3);             
+  lcd.print("DN:");         
+  lcd.print("OFF");    
+
+  lcd.setCursor(12,3);             
+  lcd.print("AUTO:");         
+  lcd.print("OFF");  
 };
 
 // read humidity/temp
@@ -206,7 +232,9 @@ void controlRelay(String field, int pin, String name) {
   else {
     Serial.println("Wrong Credential! Please send ON/OFF");
   }
-}
+};
+
+
 
 void loop() {
   String jsonString;
@@ -240,15 +268,21 @@ void loop() {
 //  lcd.print(lightLux);                    // In ra giá trị độ ẩm đọc được
 //  lcd.print(" lux");    
 
+ float humidity = 0.0;
+  float temperature = 0.0;
+
+  int lightLux = 0;
+  float moisture = 0.0;
+
   // send lora 
   unsigned long currentMillis = millis();
   if((currentMillis - previousMillis > interval)) {
-    float* tempHumidity = getTempHumidity();
-  float humidity = tempHumidity[0];
-  float temperature = tempHumidity[1];
+  float* tempHumidity = getTempHumidity();
+   humidity = tempHumidity[0];
+   temperature = tempHumidity[1];
 
-  int lightLux = readLight();
-  float moisture = readMoisture();
+   lightLux = readLight();
+   moisture = readMoisture();
 
   lcd.setCursor(0,0);              // Di chuyển con trỏ đến vị trí (0,0)
   lcd.print("T:");             // In ra chữ "Temp: "
@@ -374,6 +408,16 @@ void loop() {
           Serial.println("OFF");
           phunNuoc = "OFF";
           break;
+        case 0x10:
+          Serial.print("AUTO:");
+          Serial.println("ON");
+          _auto = "ON";
+          break;
+        case 0x11:
+          Serial.print("AUTO:");
+          Serial.println("OFF");
+          _auto = "OFF";
+          break;
   
         // In ra Serial Monitor
        
@@ -387,14 +431,17 @@ void loop() {
   //      Serial.println(phunNuoc);
     
     };
+
+    if(_auto == "ON") {
+       auto_control(temperature, humidity,moisture, lightLux);  
+    }
         
     // control relay  
-//    controlRelay(ledStatus, 2, "LED" );
-//    controlRelay(phunSuong, relayPin, "PHUN SUONG" );
-//    controlRelay(quat, relayQuat, "QUAT" );
-//    controlRelay(den, relayDen, "DEN" );
-//    controlRelay(phunNuoc, relayMayPhunNuoc, "PHUN_NUOC" );
-  
+    controlRelay(ledStatus, 2, "LED" );
+    controlRelay(phunSuong, relayPin, "PHUN SUONG" );
+    controlRelay(quat, relayQuat, "QUAT" );
+    controlRelay(den, relayDen, "DEN" );
+    controlRelay(phunNuoc, relayMayPhunNuoc, "PHUN_NUOC" );
     
   ////                     
     lcd.setCursor(0,2);              
@@ -402,8 +449,8 @@ void loop() {
     lcd.print(phunSuong);                                  
   //
     lcd.setCursor(11,2);             
-    lcd.print("LED: ");         
-    lcd.print(ledStatus);                                
+    lcd.print("NC: ");         
+    lcd.print(phunNuoc);                                
   //
     lcd.setCursor(0,3);              
     lcd.print("QUAT: ");             
@@ -417,4 +464,59 @@ void loop() {
    };
 
    delay(1000);
-}
+};
+
+// auto
+void auto_control( float temperature,float humidity, float moisture,int lightLux ) {
+   if (temperature > TEMPERATURE_THRESHOLD_MAX) {
+        if (humidity < HUMIDITY_THRESHOLD_MAX) {
+            phunSuong = "ON";
+            controlRelay(phunSuong, relayPin, "PHUN SUONG");
+        }
+        else {
+            quat = "ON";
+            controlRelay(quat, relayQuat, "QUAT");
+        }
+
+        if (moisture < MOISTURE_THRESHOLD_MAX) {
+            phunNuoc = "ON";
+            controlRelay(phunNuoc, relayMayPhunNuoc, "PHUN_NUOC");
+        }
+    }
+    else if (temperature < TEMPERATURE_THRESHOLD_MIN) {
+        den = "ON";
+        controlRelay(den, relayDen, "DEN" );
+    }
+
+    if (humidity < HUMIDITY_THRESHOLD_MIN) {
+        phunSuong = "ON";
+        controlRelay(phunSuong, relayPin, "PHUN SUONG");
+    }
+    else if (humidity > HUMIDITY_THRESHOLD_MAX) {
+        quat = "ON";
+        controlRelay(quat, relayQuat, "QUAT");
+    }
+
+    if (moisture < MOISTURE_THRESHOLD_MIN) {
+        phunNuoc = "ON";
+        controlRelay(phunNuoc, relayMayPhunNuoc, "PHUN_NUOC");
+    }
+
+//    if (isDaytime()) {  // Kiểm tra xem có phải là ban ngày hay không
+//        if (lightLux < LIGHT_THRESHOLD_MIN_DAY) {
+//            den = "ON";
+//            controlRelay(den, relayDen, "DEN");
+//        }
+//    }
+if (lightLux < LIGHT_THRESHOLD_MIN_DAY) {
+            den = "ON";
+            controlRelay(den, relayDen, "DEN");
+        }
+    else {  // Nếu là ban đêm
+        if (lightLux < LIGHT_THRESHOLD_MIN_NIGHT) {
+            den = "ON";
+            controlRelay(den, relayDen, "DEN");
+        }
+    }
+    
+}; 
